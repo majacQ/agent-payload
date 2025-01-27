@@ -11,7 +11,9 @@ import (
 	"reflect"
 	"strconv"
 
-	zstd_0 "github.com/DataDog/zstd_0"
+	"github.com/DataDog/zstd"
+	"github.com/DataDog/zstd_0"
+
 	"github.com/gogo/protobuf/jsonpb"
 	"github.com/gogo/protobuf/proto"
 )
@@ -26,6 +28,8 @@ const (
 	MessageEncodingProtobuf MessageEncoding = 0
 	MessageEncodingJSON     MessageEncoding = 1
 	MessageEncodingZstdPB   MessageEncoding = 2
+	_                       MessageEncoding = 3 // This is unused
+	MessageEncodingZstd1xPB MessageEncoding = 4
 )
 
 // MessageVersion is the version of the message. It should always be the first
@@ -57,8 +61,14 @@ func unmarshal(enc MessageEncoding, body []byte, m proto.Message) error {
 		return proto.Unmarshal(body, m)
 	case MessageEncodingJSON:
 		return jsonpb.Unmarshal(bytes.NewReader(body), m)
-	case MessageEncodingZstdPB:
-		d, err := zstd_0.Decompress(nil, body)
+	case MessageEncodingZstdPB, MessageEncodingZstd1xPB:
+		var d []byte
+		var err error
+		if enc == MessageEncodingZstd1xPB {
+			d, err = zstd.Decompress(nil, body)
+		} else {
+			d, err = zstd_0.Decompress(nil, body)
+		}
 		if err != nil {
 			return err
 		}
@@ -74,21 +84,43 @@ type MessageType uint8
 // Note: Ordering my seem unusual, this is just to match the backend where there
 // are additional types that aren't covered here.
 const (
-	TypeCollectorProc              = 12
-	TypeCollectorConnections       = 22
-	TypeResCollector               = 23
-	TypeCollectorRealTime          = 27
-	TypeCollectorContainer         = 39
-	TypeCollectorContainerRealTime = 40
-	TypeCollectorPod               = 41
-	TypeCollectorReplicaSet        = 42
-	TypeCollectorDeployment        = 43
-	TypeCollectorService           = 44
-	TypeCollectorNode              = 45
-	TypeCollectorCluster           = 46
-	TypeCollectorJob               = 47
-	TypeCollectorCronJob           = 48
-	TypeCollectorManifest          = 80
+	TypeCollectorProc                    = 12
+	TypeCollectorConnections             = 22
+	TypeResCollector                     = 23
+	TypeCollectorRealTime                = 27
+	TypeCollectorContainer               = 39
+	TypeCollectorContainerRealTime       = 40
+	TypeCollectorPod                     = 41
+	TypeCollectorReplicaSet              = 42
+	TypeCollectorDeployment              = 43
+	TypeCollectorService                 = 44
+	TypeCollectorNode                    = 45
+	TypeCollectorCluster                 = 46
+	TypeCollectorJob                     = 47
+	TypeCollectorCronJob                 = 48
+	TypeCollectorDaemonSet               = 49
+	TypeCollectorStatefulSet             = 50
+	TypeCollectorPersistentVolume        = 51
+	TypeCollectorPersistentVolumeClaim   = 52
+	TypeCollectorProcDiscovery           = 53
+	TypeCollectorRole                    = 54
+	TypeCollectorRoleBinding             = 55
+	TypeCollectorClusterRole             = 56
+	TypeCollectorClusterRoleBinding      = 57
+	TypeCollectorServiceAccount          = 58
+	TypeCollectorIngress                 = 59
+	TypeCollectorProcEvent               = 60
+	TypeCollectorNamespace               = 61
+	TypeCollectorManifest                = 80
+	TypeCollectorManifestCRD             = 81
+	TypeCollectorManifestCR              = 82
+	TypeCollectorVerticalPodAutoscaler   = 83
+	TypeCollectorHorizontalPodAutoscaler = 84
+	TypeCollectorNetworkPolicy           = 85
+	TypeCollectorLimitRange              = 86
+	TypeCollectorStorageClass            = 87
+	TypeCollectorPodDisruptionBudget     = 88
+	TypeCollectorECSTask                 = 200
 )
 
 func (m MessageType) String() string {
@@ -119,8 +151,52 @@ func (m MessageType) String() string {
 		return "job"
 	case TypeCollectorCronJob:
 		return "cron-job"
+	case TypeCollectorDaemonSet:
+		return "daemon-set"
+	case TypeCollectorStatefulSet:
+		return "stateful-set"
+	case TypeCollectorPersistentVolume:
+		return "persistent-volume"
+	case TypeCollectorPersistentVolumeClaim:
+		return "persistent-volume-claim"
+	case TypeCollectorProcDiscovery:
+		return "process-discovery"
+	case TypeCollectorRole:
+		return "role"
+	case TypeCollectorRoleBinding:
+		return "role-binding"
+	case TypeCollectorClusterRole:
+		return "cluster-role"
+	case TypeCollectorClusterRoleBinding:
+		return "cluster-role-binding"
+	case TypeCollectorServiceAccount:
+		return "service-account"
+	case TypeCollectorIngress:
+		return "ingress"
+	case TypeCollectorProcEvent:
+		return "process-event"
+	case TypeCollectorNamespace:
+		return "namespace"
 	case TypeCollectorManifest:
 		return "manifest"
+	case TypeCollectorManifestCRD:
+		return "manifest-crd"
+	case TypeCollectorManifestCR:
+		return "manifest-cr"
+	case TypeCollectorVerticalPodAutoscaler:
+		return "vertical-pod-autoscaler"
+	case TypeCollectorHorizontalPodAutoscaler:
+		return "horizontal-pod-autoscaler"
+	case TypeCollectorNetworkPolicy:
+		return "network-policy"
+	case TypeCollectorLimitRange:
+		return "limit-range"
+	case TypeCollectorStorageClass:
+		return "storage-class"
+	case TypeCollectorECSTask:
+		return "ecs-task"
+	case TypeCollectorPodDisruptionBudget:
+		return "pod-disruption-budget"
 	default:
 		// otherwise convert the type identifier
 		return strconv.Itoa(int(m))
@@ -175,12 +251,56 @@ func DecodeMessage(data []byte) (Message, error) {
 		m = &CollectorNode{}
 	case TypeCollectorCluster:
 		m = &CollectorCluster{}
-	case TypeCollectorManifest:
-		m = &CollectorManifest{}
 	case TypeCollectorJob:
 		m = &CollectorJob{}
 	case TypeCollectorCronJob:
 		m = &CollectorCronJob{}
+	case TypeCollectorDaemonSet:
+		m = &CollectorDaemonSet{}
+	case TypeCollectorStatefulSet:
+		m = &CollectorStatefulSet{}
+	case TypeCollectorPersistentVolume:
+		m = &CollectorPersistentVolume{}
+	case TypeCollectorPersistentVolumeClaim:
+		m = &CollectorPersistentVolumeClaim{}
+	case TypeCollectorProcDiscovery:
+		m = &CollectorProcDiscovery{}
+	case TypeCollectorRole:
+		m = &CollectorRole{}
+	case TypeCollectorRoleBinding:
+		m = &CollectorRoleBinding{}
+	case TypeCollectorClusterRole:
+		m = &CollectorClusterRole{}
+	case TypeCollectorClusterRoleBinding:
+		m = &CollectorClusterRoleBinding{}
+	case TypeCollectorServiceAccount:
+		m = &CollectorServiceAccount{}
+	case TypeCollectorIngress:
+		m = &CollectorIngress{}
+	case TypeCollectorProcEvent:
+		m = &CollectorProcEvent{}
+	case TypeCollectorNamespace:
+		m = &CollectorNamespace{}
+	case TypeCollectorManifest:
+		m = &CollectorManifest{}
+	case TypeCollectorManifestCRD:
+		m = &CollectorManifestCRD{}
+	case TypeCollectorManifestCR:
+		m = &CollectorManifestCR{}
+	case TypeCollectorVerticalPodAutoscaler:
+		m = &CollectorVerticalPodAutoscaler{}
+	case TypeCollectorHorizontalPodAutoscaler:
+		m = &CollectorHorizontalPodAutoscaler{}
+	case TypeCollectorNetworkPolicy:
+		m = &CollectorNetworkPolicy{}
+	case TypeCollectorLimitRange:
+		m = &CollectorLimitRange{}
+	case TypeCollectorStorageClass:
+		m = &CollectorStorageClass{}
+	case TypeCollectorECSTask:
+		m = &CollectorECSTask{}
+	case TypeCollectorPodDisruptionBudget:
+		m = &CollectorPodDisruptionBudget{}
 	default:
 		return Message{}, fmt.Errorf("unhandled message type: %d", header.Type)
 	}
@@ -218,12 +338,57 @@ func DetectMessageType(b MessageBody) (MessageType, error) {
 		t = TypeCollectorNode
 	case *CollectorManifest:
 		t = TypeCollectorManifest
+	case *CollectorManifestCRD:
+		t = TypeCollectorManifestCRD
+	case *CollectorManifestCR:
+		t = TypeCollectorManifestCR
 	case *CollectorCluster:
 		t = TypeCollectorCluster
 	case *CollectorJob:
 		t = TypeCollectorJob
 	case *CollectorCronJob:
 		t = TypeCollectorCronJob
+	case *CollectorDaemonSet:
+		t = TypeCollectorDaemonSet
+	case *CollectorStatefulSet:
+		t = TypeCollectorStatefulSet
+	case *CollectorPersistentVolume:
+		t = TypeCollectorPersistentVolume
+	case *CollectorPersistentVolumeClaim:
+		t = TypeCollectorPersistentVolumeClaim
+	case *CollectorProcDiscovery:
+		t = TypeCollectorProcDiscovery
+	case *CollectorRole:
+		t = TypeCollectorRole
+	case *CollectorRoleBinding:
+		t = TypeCollectorRoleBinding
+	case *CollectorClusterRole:
+		t = TypeCollectorClusterRole
+	case *CollectorClusterRoleBinding:
+		t = TypeCollectorClusterRoleBinding
+	case *CollectorServiceAccount:
+		t = TypeCollectorServiceAccount
+	case *CollectorIngress:
+		t = TypeCollectorIngress
+	case *CollectorProcEvent:
+		t = TypeCollectorProcEvent
+	case *CollectorNamespace:
+		t = TypeCollectorNamespace
+	case *CollectorVerticalPodAutoscaler:
+		t = TypeCollectorVerticalPodAutoscaler
+	case *CollectorHorizontalPodAutoscaler:
+		t = TypeCollectorHorizontalPodAutoscaler
+	case *CollectorNetworkPolicy:
+		t = TypeCollectorNetworkPolicy
+	case *CollectorLimitRange:
+		t = TypeCollectorLimitRange
+	case *CollectorStorageClass:
+		t = TypeCollectorStorageClass
+	case *CollectorECSTask:
+		t = TypeCollectorECSTask
+	case *CollectorPodDisruptionBudget:
+		t = TypeCollectorPodDisruptionBudget
+
 	default:
 		return 0, fmt.Errorf("unknown message body type: %s", reflect.TypeOf(b))
 	}
@@ -257,14 +422,16 @@ func EncodeMessage(m Message) ([]byte, error) {
 			return nil, err
 		}
 		p = []byte(s)
-	case MessageEncodingZstdPB:
+	case MessageEncodingZstdPB, MessageEncodingZstd1xPB:
 		pb, err := proto.Marshal(m.Body)
 		if err != nil {
 			return nil, err
 		}
-		p, err = zstd_0.Compress(nil, pb)
-		if err != nil {
-			return nil, err
+
+		if m.Header.Encoding == MessageEncodingZstd1xPB {
+			p, err = zstd.Compress(nil, pb)
+		} else {
+			p, err = zstd_0.Compress(nil, pb)
 		}
 	default:
 		return nil, fmt.Errorf("unknown message encoding: %d", m.Header.Encoding)

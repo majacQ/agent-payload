@@ -32,23 +32,37 @@ func TestDecodeZstd05Payload(t *testing.T) {
 
 func TestMessageTypeString(t *testing.T) {
 	cases := map[MessageType]string{
-		TypeCollectorProc:              "process",
-		TypeCollectorConnections:       "network",
-		TypeCollectorRealTime:          "process-rt",
-		TypeCollectorContainer:         "container",
-		TypeCollectorContainerRealTime: "container-rt",
-		TypeCollectorPod:               "pod",
-		TypeCollectorReplicaSet:        "replica-set",
-		TypeCollectorDeployment:        "deployment",
-		TypeCollectorService:           "service",
-		TypeCollectorNode:              "node",
-		TypeCollectorCluster:           "cluster",
-		TypeCollectorManifest:          "manifest",
-		TypeCollectorJob:               "job",
-		TypeCollectorCronJob:           "cron-job",
-		TypeResCollector:               "23",
+		TypeCollectorProc:                  "process",
+		TypeCollectorConnections:           "network",
+		TypeCollectorRealTime:              "process-rt",
+		TypeCollectorContainer:             "container",
+		TypeCollectorContainerRealTime:     "container-rt",
+		TypeCollectorPod:                   "pod",
+		TypeCollectorReplicaSet:            "replica-set",
+		TypeCollectorDeployment:            "deployment",
+		TypeCollectorService:               "service",
+		TypeCollectorNode:                  "node",
+		TypeCollectorCluster:               "cluster",
+		TypeCollectorManifest:              "manifest",
+		TypeCollectorJob:                   "job",
+		TypeCollectorCronJob:               "cron-job",
+		TypeCollectorDaemonSet:             "daemon-set",
+		TypeCollectorStatefulSet:           "stateful-set",
+		TypeCollectorPersistentVolume:      "persistent-volume",
+		TypeCollectorPersistentVolumeClaim: "persistent-volume-claim",
+		TypeCollectorProcDiscovery:         "process-discovery",
+		TypeCollectorRole:                  "role",
+		TypeCollectorRoleBinding:           "role-binding",
+		TypeCollectorClusterRole:           "cluster-role",
+		TypeCollectorClusterRoleBinding:    "cluster-role-binding",
+		TypeCollectorServiceAccount:        "service-account",
+		TypeCollectorIngress:               "ingress",
+		TypeCollectorProcEvent:             "process-event",
+		TypeResCollector:                   "23",
+		TypeCollectorNetworkPolicy:         "network-policy",
+		TypeCollectorPodDisruptionBudget:   "pod-disruption-budget",
 	}
 	for input, expected := range cases {
-		assert.Equal(t, input.String(), expected)
+		assert.Equal(t, expected, input.String())
 	}
 }

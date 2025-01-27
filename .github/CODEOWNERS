@@ -1,0 +1,19 @@
+# See https://help.github.com/articles/about-codeowners/ for syntax
+# Rules are matched bottom-to-top, so one team can own subdirectories
+# and another the rest of the directory.
+
+# All file changes should be reviewed by the maintainer team unless
+# specified otherwise
+*                          @DataDog/agent-shared-components
+metrics/                   @DataDog/agent-shared-components @DataDog/agent-processing-and-routing
+logs/                      @DataDog/agent-shared-components @DataDog/agent-processing-and-routing
+process/                   @DataDog/agent-shared-components @DataDog/container-app @DataDog/container-intake
+process/connections.proto  @DataDog/agent-shared-components @DataDog/Networks @DataDog/ebpf-platform @DataDog/universal-service-monitoring
+contlcycle/                @DataDog/agent-shared-components @DataDog/container-integrations
+contimage/                 @DataDog/agent-shared-components @DataDog/container-integrations @DataDog/container-intake
+sbom/                      @DataDog/agent-shared-components @DataDog/container-integrations
+CycloneDX/                 @DataDog/agent-shared-components @DataDog/container-integrations
+cyclonedx_v1_4/            @DataDog/agent-shared-components @DataDog/container-integrations
+cws/                       @DataDog/agent-shared-components @DataDog/agent-security
+proto/cws/                 @DataDog/agent-shared-components @DataDog/agent-security
+proto/autoscaling/         @DataDog/container-integrations @DataDog/container-app

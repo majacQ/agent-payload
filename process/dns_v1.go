@@ -3,10 +3,13 @@ package process
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math"
 
 	"github.com/DataDog/mmh3"
 )
+
+const bufTooShortStr = "dns buffer is too short"
 
 // DNS data is encoded as a very basic bucketed hash table.  There are three blocks, or buffers, of data:
 //
@@ -25,25 +28,28 @@ import (
 //	of the bucket in the bucket block
 //
 // The overall buffer is encoded as:
+//
 //	1 byte indicating version
-// 	2 bytes indicating the number of buckets
+//	2 bytes indicating the number of buckets
 //	varint indicating the length of the name buffer.
 //	varint indicating the length of the position buffer
-// 	varint indicating the position of the "middle" (bucketCount / 2) bucket in the position block
+//	varint indicating the position of the "middle" (bucketCount / 2) bucket in the position block
 //		We will use this to skip the half of the buckets when searching for the target bucket index
 //	position block
 //	bucket block
 //	name block
 //
 // Notes:
+//
 //	Using varints saves space at the cost of not having random access to certain sections of data, particularly the
 //	bucket position mapping.  This was a deliberate trade off to reduce the size of the payload and thus memory usage
 //
 //	Varints are also more finicky to deal with in terms of calculating required space ahead of time.  This increases
 //	the implementation complexity, or at least the line count, but we reduce allocations & memory usage by
-// 	pre-sizing the output buffers
+//	pre-sizing the output buffers
 //
 // This type is not thread safe
+
 type V1DNSEncoder struct {
 	BucketFactor float64
 	scratch      [binary.MaxVarintLen64]byte // Used for varint encoding
@@ -61,15 +67,21 @@ const dns1Version1PreambleLength = 3
 // Currently the bucket count is calculated as `len(input) * bucketFactor`
 const defaultBucketFactor = 0.75
 
-func NewV1DNSEncoder() DNSEncoder {
+func NewV1DNSEncoder() DNSEncoderV1 {
 	return &V1DNSEncoder{
 		BucketFactor: defaultBucketFactor,
 	}
 }
 
-func (e *V1DNSEncoder) Encode(dns map[string]*DNSEntry) []byte {
+func (e *V1DNSEncoder) EncodeMapped(dns map[string]*DNSDatabaseEntry, indexToOFfset []int32) ([]byte, error) {
+	return nil, fmt.Errorf("EncodeMapped not valid in V1")
+}
+func (e *V1DNSEncoder) EncodeDomainDatabase(names []string) ([]byte, []int32, error) {
+	return nil, nil, fmt.Errorf("EncodeDomainDatabase not valid in V1")
+}
+func (e *V1DNSEncoder) Encode(dns map[string]*DNSEntry) ([]byte, error) {
 	if len(dns) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	bucketCount := getBucketCount(dns, e.BucketFactor)
@@ -115,7 +127,7 @@ func (e *V1DNSEncoder) Encode(dns map[string]*DNSEntry) []byte {
 
 	// Exit early if all the buckets are empty
 	if allBucketsEmpty {
-		return nil
+		return nil, nil
 	}
 
 	bucketBufferLength := 0
@@ -199,7 +211,7 @@ func (e *V1DNSEncoder) Encode(dns map[string]*DNSEntry) []byte {
 		copy(nameBuffer[position+bytesWritten:], name)
 	}
 
-	return buffer
+	return buffer, nil
 }
 
 func (e *V1DNSEncoder) varIntSize(value int) int {
@@ -253,13 +265,19 @@ func getDNSNamesV1(buf []byte) []string {
 	return names
 }
 
-func iterateDNSV1(buf []byte, ip string, cb func(i, total int, entry string) bool) {
-	unsafeIterateDNSV1(buf, ip, func(i, total int, entry []byte) bool {
+func iterateDNSV1(buf []byte, ip string, cb func(i, total int, entry string) bool) error {
+	return unsafeIterateDNSV1(buf, ip, func(i, total int, entry []byte) bool {
 		return cb(i, total, string(entry))
 	})
 }
 
-func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byte) bool) {
+func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byte) bool) error {
+	bufLen := len(buf)
+
+	// Needs 3 bytes so that buf[1:] can convert to uint16
+	if bufLen <= 2 {
+		return fmt.Errorf(bufTooShortStr)
+	}
 	// Read overview:
 	//	Compute the target bucket for the given ip
 	//	Iterate over all the buckets to find position of the given bucket
@@ -275,13 +293,22 @@ func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byt
 	// skip the preamble
 	index := dns1Version1PreambleLength
 
+	if index > bufLen {
+		return fmt.Errorf("dns buffer is too short, invalid preamble")
+	}
 	positionBufferLen, bytesRead := binary.Uvarint(buf[index:])
 	index += bytesRead
 
+	if index > bufLen {
+		return fmt.Errorf("dns buffer is too short, invalid position buffer length")
+	}
 	nameBufferLen, bytesRead := binary.Uvarint(buf[index:])
 	nameBuffer := buf[len(buf)-int(nameBufferLen):]
 	index += bytesRead
 
+	if index > bufLen {
+		return fmt.Errorf("dns buffer is too short, invalid middle bucket position")
+	}
 	middleBucketPosition, bytesRead := binary.Uvarint(buf[index:])
 	index += bytesRead
 
@@ -308,6 +335,9 @@ func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byt
 	var bucketPosition int
 
 	for i := startBucket; i < endBucket; i++ {
+		if index > bufLen {
+			return fmt.Errorf("dns buffer is too short, invalid bucket position")
+		}
 		value, bytesRead := binary.Uvarint(buf[index:])
 
 		index += bytesRead
@@ -321,24 +351,41 @@ func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byt
 	// Move read index to the start of the bucket data.  Skip the metadata and the position buffer
 	index = metaLength + int(positionBufferLen) + bucketPosition
 
+	if index > bufLen {
+		return fmt.Errorf("dns buffer is too short, invalid bucket length")
+	}
 	bucketLength, bytesRead := binary.Uvarint(buf[index:])
 	index += bytesRead
 
 	for i := 0; i < int(bucketLength); i++ {
+		if index > bufLen {
+			return fmt.Errorf("dns buffer is too short, invalid key length")
+		}
 		keyLength, bytesRead := binary.Uvarint(buf[index:])
 		index += bytesRead
+
+		if index > bufLen || (index+int(keyLength)) > bufLen {
+			return fmt.Errorf("dns buffer is too short, invalid key data`")
+		}
 
 		key := buf[index : index+int(keyLength)]
 		index += int(keyLength)
 
 		matched := bytes.Equal(key, []byte(ip))
 
+		if index > bufLen {
+			return fmt.Errorf("dns buffer is too short, invalid value data`")
+		}
 		nameCount, bytesRead := binary.Uvarint(buf[index:])
 		index += bytesRead
 
 		// Advance through all name positions
 		// We still need to do this even if the current entry didn't match in order to get to the next bucket entry
 		for j := 0; j < int(nameCount); j++ {
+			if index > bufLen {
+				return fmt.Errorf("dns buffer is too short, invalid name data`")
+			}
+
 			namePosition, bytesRead := binary.Uvarint(buf[index:])
 			index += bytesRead
 
@@ -346,19 +393,28 @@ func unsafeIterateDNSV1(buf []byte, ip string, cb func(i, total int, entry []byt
 				continue
 			}
 
+			if int(namePosition) > len(nameBuffer) {
+				return fmt.Errorf("name buffer is too short, invalid name position`")
+			}
 			nameLength, bytesReadForName := binary.Uvarint(nameBuffer[int(namePosition):])
 
 			start := int(namePosition) + bytesReadForName
 
+			if start > len(nameBuffer) || start+int(nameLength) > len(nameBuffer) {
+				return fmt.Errorf("name buffer is too short, invalid name`")
+			}
+
 			if !cb(j, int(nameCount), nameBuffer[start:start+int(nameLength)]) {
-				return
+				return nil
 			}
 		}
 
 		if matched {
-			return
+			return nil
 		}
 	}
+
+	return nil
 }
 
 func getBucketCount(dns map[string]*DNSEntry, bucketFactor float64) int {
@@ -372,4 +428,60 @@ func getBucketCount(dns map[string]*DNSEntry, bucketFactor float64) int {
 	}
 
 	return bucketCount
+}
+
+// GetDNS gets the DNS entries for the given IP from the given buffer
+func GetDNS(buf []byte, ip string) (string, []string, error) {
+	if len(buf) == 0 || ip == "" {
+		return "", nil, nil
+	}
+
+	switch buf[0] {
+	case dnsVersion1:
+		first, strings := getV1(buf, ip)
+		return first, strings, nil
+	}
+
+	return "", nil, fmt.Errorf("Unexpected version %v", buf[0])
+}
+
+func getDNSNames(buf []byte) ([]string, error) {
+	if len(buf) == 0 {
+		return nil, nil
+	}
+
+	switch buf[0] {
+	case dnsVersion1:
+		names := getDNSNamesV1(buf)
+		return names, nil
+	}
+	return nil, fmt.Errorf("Unexpected version %v", buf[0])
+}
+
+// IterateDNS invokes the callback function for each DNS entry for the given IP in the given buffer
+func IterateDNS(buf []byte, ip string, cb func(i, total int, entry string) bool) error {
+	if len(buf) == 0 || ip == "" {
+		return nil
+	}
+
+	switch buf[0] {
+	case dnsVersion1:
+		return iterateDNSV1(buf, ip, cb)
+	}
+	return fmt.Errorf("Unexpected version %v", buf[0])
+}
+
+// UnsafeIterateDNS invokes the callback function for each DNS entry for the given IP in the given buffer.
+// Each entry is a the slice from the overall buffer.  It should be copied before use
+func UnsafeIterateDNS(buf []byte, ip string, cb func(i, total int, entry []byte) bool) error {
+	if len(buf) == 0 || ip == "" {
+		return nil
+	}
+
+	switch buf[0] {
+	case dnsVersion1:
+		unsafeIterateDNSV1(buf, ip, cb)
+		return nil
+	}
+	return fmt.Errorf("Unexpected version %v", buf[0])
 }

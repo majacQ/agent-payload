@@ -71,6 +71,13 @@ func (suite *TagSerdeTestSuite) TestTagSerdeRealTags() {
 		})
 		assert.Equal(suite.T(), allTags[i], iterated)
 
+		var unsafeIterated []string
+		unsafeIterateTags(encoder.Buffer(), tagIndex, func(i, total int, tag []byte) bool {
+			unsafeIterated = append(unsafeIterated, string(tag))
+			return true
+		})
+		assert.Equal(suite.T(), allTags[i], unsafeIterated)
+
 		iterated = nil
 		iterateTags(encoder.Buffer(), tagIndex, func(i, total int, tag string) bool {
 			if i == total-1 {
@@ -138,6 +145,50 @@ func TestV1DecodedTags(t *testing.T) {
 	for i, tagIndex := range tagIndices {
 		assert.Equal(t, allTags[i], getTags(buf, tagIndex))
 	}
+}
+
+func TestUnsafeIterationV1(t *testing.T) {
+	// buff = 2
+	buf := make([]byte, 2)
+	assert.NotPanics(t, func() {
+		unsafeIterateV1(buf, 0, func(i, total int, tag []byte) bool { return true })
+	})
+
+	// buff = 1
+	assert.NotPanics(t, func() {
+		unsafeIterateV1(buf[1:], 0, func(i, total int, tag []byte) bool { return true })
+	})
+
+	// indx > buff
+	buf = make([]byte, 6)
+	assert.NotPanics(t, func() {
+		unsafeIterateV1(buf, 10, func(i, total int, tag []byte) bool { return true })
+	})
+
+	// footerBuffer < 2
+	assert.NotPanics(t, func() {
+		unsafeIterateV1(buf, 5, func(i, total int, tag []byte) bool { return true })
+	})
+}
+
+func FuzzIterateV1(f *testing.F) {
+	allTags := readTestTags(f, "testdata/tags.txt")
+	t := NewTagEncoder()
+
+	for _, tag := range allTags {
+		_ = t.Encode(tag)
+	}
+	buf := t.Buffer()
+
+	f.Add(buf, 1)
+	f.Fuzz(FuzzingIterateV1)
+}
+
+func FuzzingIterateV1(t *testing.T, buffer []byte, tagIndex int) {
+	assert.NotPanics(t, func() {
+		unsafeIterateV1(buffer, tagIndex, func(i, total int, tag []byte) bool { return true })
+	})
+
 }
 
 func BenchmarkTagEncode(b *testing.B) {
